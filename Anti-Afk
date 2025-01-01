@@ -1,0 +1,354 @@
+-- Services
+local TweenService = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Constants
+local COLORS = {
+    BACKGROUND = Color3.fromRGB(32, 34, 37),
+    SECONDARY = Color3.fromRGB(47, 49, 54),
+    ACCENT = Color3.fromRGB(114, 137, 218),
+    TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
+    TEXT_SECONDARY = Color3.fromRGB(185, 187, 190),
+    SUCCESS = Color3.fromRGB(67, 181, 129),
+    ERROR = Color3.fromRGB(240, 71, 71),
+    WARNING = Color3.fromRGB(250, 166, 26)
+}
+
+local STYLES = {
+    CORNER_RADIUS = UDim.new(0, 8),
+    FONT = Enum.Font.GothamBold,
+    FONT_NORMAL = Enum.Font.Gotham
+}
+
+-- Variables
+local currentNotification = nil
+local isEnabled = false
+local isMinimized = false
+local startTime = 0
+local heartbeatConnection = nil
+
+-- Utility: Tween Creation
+local function createTween(object, properties, duration)
+    local tweenInfo = TweenInfo.new(duration or 0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    return TweenService:Create(object, tweenInfo, properties)
+end
+
+-- Utility: Timer Formatting
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    return string.format("%02d:%02d:%02d", hours, minutes, secs)
+end
+
+-- Notifications
+local function createNotification(text, duration)
+    -- Destroy any existing notification
+    if currentNotification then
+        currentNotification:Destroy()
+        currentNotification = nil
+    end
+
+    -- Create Notification ScreenGui
+    local notificationGui = Instance.new("ScreenGui")
+    notificationGui.Name = "NotificationGui"
+    notificationGui.ResetOnSpawn = false
+
+    -- Parent to CoreGui or PlayerGui
+    if not pcall(function() return game:GetService("CoreGui") end) then
+        notificationGui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    else
+        notificationGui.Parent = game:GetService("CoreGui")
+    end
+
+    -- Create Notification Container
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(0, 300, 0, 60)
+    container.Position = UDim2.new(0.5, -150, 0, -70)
+    container.BackgroundColor3 = COLORS.SECONDARY
+    container.BorderSizePixel = 0
+    container.Parent = notificationGui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = STYLES.CORNER_RADIUS
+    corner.Parent = container
+
+    -- Accent Bar
+    local accent = Instance.new("Frame")
+    accent.Size = UDim2.new(0, 4, 1, 0)
+    accent.BackgroundColor3 = COLORS.ACCENT
+    accent.BorderSizePixel = 0
+    accent.Parent = container
+
+    -- Notification Text
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -20, 1, 0)
+    message.Position = UDim2.new(0, 20, 0, 0)
+    message.BackgroundTransparency = 1
+    message.Text = text
+    message.TextColor3 = COLORS.TEXT_PRIMARY
+    message.TextSize = 14
+    message.Font = STYLES.FONT
+    message.TextXAlignment = Enum.TextXAlignment.Left
+    message.TextWrapped = true
+    message.Parent = container
+
+    -- Tween Animations for Notification
+    createTween(container, {Position = UDim2.new(0.5, -150, 0, 20)}, 0.3):Play() -- Slide In
+    currentNotification = notificationGui -- Track the current notification
+    task.wait(duration or 3) -- Wait for the specified duration
+    createTween(container, {Position = UDim2.new(0.5, -150, 0, -70)}, 0.3):Play() -- Slide Out
+    task.wait(0.35)
+    if currentNotification == notificationGui then
+        currentNotification:Destroy()
+        currentNotification = nil
+    end
+end
+
+-- Confirmation Dialog
+local function createConfirmationDialog(parentGui, onConfirm, onCancel)
+    local dimBackground = Instance.new("Frame")
+    dimBackground.Size = UDim2.new(1, 0, 1, 0)
+    dimBackground.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    dimBackground.BackgroundTransparency = 0.5
+    dimBackground.BorderSizePixel = 0
+    dimBackground.Parent = parentGui
+
+    local dialog = Instance.new("Frame")
+    dialog.Size = UDim2.new(0, 300, 0, 150)
+    dialog.Position = UDim2.new(0.5, -150, 0.5, -75)
+    dialog.BackgroundColor3 = COLORS.BACKGROUND
+    dialog.BorderSizePixel = 0
+    dialog.Parent = dimBackground
+
+    local dialogCorner = Instance.new("UICorner")
+    dialogCorner.CornerRadius = STYLES.CORNER_RADIUS
+    dialogCorner.Parent = dialog
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -20, 0, 40)
+    title.Position = UDim2.new(0, 10, 0, 10)
+    title.BackgroundTransparency = 1
+    title.Text = "Confirm Close"
+    title.TextColor3 = COLORS.TEXT_PRIMARY
+    title.TextSize = 18
+    title.Font = STYLES.FONT
+    title.TextXAlignment = Enum.TextXAlignment.Center
+    title.Parent = dialog
+
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -20, 0, 40)
+    message.Position = UDim2.new(0, 10, 0.3, 0)
+    message.BackgroundTransparency = 1
+    message.Text = "Are you sure you want to close this GUI?"
+    message.TextColor3 = COLORS.TEXT_SECONDARY
+    message.TextSize = 14
+    message.Font = STYLES.FONT_NORMAL
+    message.TextWrapped = true
+    message.TextXAlignment = Enum.TextXAlignment.Center
+    message.Parent = dialog
+
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -20, 0, 40)
+    buttonContainer.Position = UDim2.new(0, 10, 1, -50)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.Parent = dialog
+
+    local function createButton(text, position, color)
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(0.48, 0, 1, 0)
+        button.Position = position
+        button.BackgroundColor3 = color
+        button.Text = text
+        button.TextColor3 = COLORS.TEXT_PRIMARY
+        button.TextSize = 14
+        button.Font = STYLES.FONT
+        button.Parent = buttonContainer
+
+        local buttonCorner = Instance.new("UICorner")
+        buttonCorner.CornerRadius = STYLES.CORNER_RADIUS
+        buttonCorner.Parent = button
+
+        return button
+    end
+
+    local confirmButton = createButton("Confirm", UDim2.new(0, 0, 0, 0), COLORS.SUCCESS)
+    local cancelButton = createButton("Cancel", UDim2.new(0.52, 0, 0, 0), COLORS.ERROR)
+
+    confirmButton.MouseButton1Click:Connect(function()
+        onConfirm()
+        dimBackground:Destroy()
+    end)
+
+    cancelButton.MouseButton1Click:Connect(function()
+        dimBackground:Destroy() -- Immediately close the dialog
+        if onCancel then
+            onCancel() -- Trigger the cancel callback if provided
+        end
+    end)
+end
+
+-- Main GUI Creation
+local function createMainGUI()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "EnhancedAntiAFKGui"
+    gui.ResetOnSpawn = false
+
+    -- Parent GUI to CoreGui or PlayerGui
+    if not pcall(function() return game:GetService("CoreGui") end) then
+        gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    else
+        gui.Parent = game:GetService("CoreGui")
+    end
+
+    -- Main Frame
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 350, 0, 200)
+    mainFrame.Position = UDim2.new(0.5, -175, 0.5, -100)
+    mainFrame.BackgroundColor3 = COLORS.BACKGROUND
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = gui
+
+    -- Title Bar
+    local titleBar = Instance.new("Frame")
+    titleBar.Size = UDim2.new(1, 0, 0, 40)
+    titleBar.BackgroundColor3 = COLORS.SECONDARY
+    titleBar.Parent = mainFrame
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -100, 1, 0)
+    title.Position = UDim2.new(0, 15, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Enhanced Anti-AFK System"
+    title.TextColor3 = COLORS.TEXT_PRIMARY
+    title.TextSize = 16
+    title.Font = STYLES.FONT
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = titleBar
+
+    -- Close Button
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0, 26, 0, 26)
+    closeButton.Position = UDim2.new(1, -35, 0, 7)
+    closeButton.BackgroundColor3 = COLORS.ERROR
+    closeButton.Text = "×"
+    closeButton.TextColor3 = COLORS.TEXT_PRIMARY
+    closeButton.TextSize = 14
+    closeButton.Font = STYLES.FONT
+    closeButton.Parent = titleBar
+
+    -- Close Button Logic
+    closeButton.MouseButton1Click:Connect(function()
+        createConfirmationDialog(gui, function()
+            gui:Destroy() -- Confirm action
+        end, function()
+            createNotification("Close Cancelled", 2) -- Cancel action
+        end)
+    end)
+
+    -- Minimize Button
+    local minimizeButton = Instance.new("TextButton")
+    minimizeButton.Size = UDim2.new(0, 26, 0, 26)
+    minimizeButton.Position = UDim2.new(1, -70, 0, 7)
+    minimizeButton.BackgroundColor3 = COLORS.WARNING
+    minimizeButton.Text = "−"
+    minimizeButton.TextColor3 = COLORS.TEXT_PRIMARY
+    minimizeButton.TextSize = 14
+    minimizeButton.Font = STYLES.FONT
+    minimizeButton.Parent = titleBar
+
+    -- Minimize Logic
+    minimizeButton.MouseButton1Click:Connect(function()
+        isMinimized = true
+        mainFrame.Visible = false
+        createNotification("GUI Minimized. Press Left-Ctrl to reopen.", 3)
+    end)
+
+    UserInputService.InputBegan:Connect(function(input, isProcessed)
+        if not isProcessed and input.KeyCode == Enum.KeyCode.LeftControl then
+            if isMinimized then
+                isMinimized = false
+                mainFrame.Visible = true
+                createNotification("GUI Restored", 2)
+            end
+        end
+    end)
+
+    -- Enable Button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0.8, 0, 0, 45)
+    toggleButton.Position = UDim2.new(0.1, 0, 0.35, 0)
+    toggleButton.BackgroundColor3 = COLORS.ACCENT
+    toggleButton.Text = "Enable"
+    toggleButton.TextColor3 = COLORS.TEXT_PRIMARY
+    toggleButton.TextSize = 16
+    toggleButton.Font = STYLES.FONT
+    toggleButton.Parent = mainFrame
+
+    -- Status Label
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, -20, 0, 20)
+    statusLabel.Position = UDim2.new(0, 10, 0.7, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: Inactive"
+    statusLabel.TextColor3 = COLORS.ERROR
+    statusLabel.TextSize = 14
+    statusLabel.Font = STYLES.FONT
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = mainFrame
+
+    -- Timer
+    local timerLabel = Instance.new("TextLabel")
+    timerLabel.Size = UDim2.new(0, 100, 0, 20)
+    timerLabel.Position = UDim2.new(1, -110, 1, -30)
+    timerLabel.BackgroundTransparency = 1
+    timerLabel.Text = "00:00:00"
+    timerLabel.TextColor3 = COLORS.TEXT_SECONDARY
+    timerLabel.TextSize = 14
+    timerLabel.Font = STYLES.FONT
+    timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+    timerLabel.Parent = mainFrame
+
+    -- Credits
+    local creditLabel = Instance.new("TextLabel")
+    creditLabel.Size = UDim2.new(0, 200, 0, 20)
+    creditLabel.Position = UDim2.new(0, 10, 1, -30)
+    creditLabel.BackgroundTransparency = 1
+    creditLabel.Text = "Made By: YallSumLs"
+    creditLabel.TextColor3 = COLORS.TEXT_SECONDARY
+    creditLabel.TextSize = 14
+    creditLabel.Font = STYLES.FONT
+    creditLabel.TextXAlignment = Enum.TextXAlignment.Left
+    creditLabel.Parent = mainFrame
+
+    -- Enable Logic
+    toggleButton.MouseButton1Click:Connect(function()
+        isEnabled = not isEnabled
+        statusLabel.Text = isEnabled and "Status: Active" or "Status: Inactive"
+        statusLabel.TextColor3 = isEnabled and COLORS.SUCCESS or COLORS.ERROR
+        toggleButton.Text = isEnabled and "Disable" or "Enable"
+
+        if isEnabled then
+            startTime = os.time()
+            heartbeatConnection = RunService.Heartbeat:Connect(function()
+                local elapsed = os.time() - startTime
+                timerLabel.Text = formatTime(elapsed)
+            end)
+            createNotification("Anti-AFK Enabled", 3)
+        else
+            if heartbeatConnection then
+                heartbeatConnection:Disconnect()
+            end
+            timerLabel.Text = "00:00:00"
+            createNotification("Anti-AFK Disabled", 3)
+        end
+    end)
+
+    return gui
+end
+
+createMainGUI()
